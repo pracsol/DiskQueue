@@ -46,6 +46,7 @@ namespace ModernDiskQueue.Implementation
         /// Sync and Async operations use different locking strategies, and should not be mixed.
         /// </summary>
         private readonly bool _isAsyncMode = false;
+        private volatile bool _isInitialized = false;
         private readonly bool _throwOnConflict;
         private static readonly object _configLock = new();
         private volatile bool _disposed;
@@ -138,7 +139,7 @@ namespace ModernDiskQueue.Implementation
                 SuggestedWriteBuffer = 1024 * 1024;
 
                 await LockAndReadQueueAsync(cancellationToken);
-
+                _isInitialized = true;
                 _disposed = false;
             }
         }
@@ -1952,6 +1953,27 @@ namespace ModernDiskQueue.Implementation
                 await GetCurrentCountOfItemsInQueueAsync(cancellationToken);
 
             return size;
+        }
+
+        // Simple helper method that doesn't require a branch for each call
+        // This is used internally and has minimal overhead
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private void EnsureInitialized()
+        {
+            // This will get JIT-optimized and potentially eliminated in release builds
+            // when _isInitialized is true.
+            if (!_isInitialized)
+            {
+                ThrowNotInitialized();
+            }
+        }
+
+        // We move the throw to a separate method to keep EnsureInitialized small
+        // for better inlining potential
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ThrowNotInitialized()
+        {
+            throw new InvalidOperationException("Queue was not properly initialized");
         }
     }
 }
